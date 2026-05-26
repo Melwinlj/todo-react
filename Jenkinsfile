@@ -48,7 +48,7 @@ pipeline {
             steps {
                 sh '''
                     echo "Node: $(node -v)  NPM: $(npm -v)"
-                    npm ci
+                    npm install
                 '''
             }
         }
