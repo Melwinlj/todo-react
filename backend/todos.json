@@ -1,0 +1,26 @@
+[
+  {
+    "id": 1,
+    "title": "Buy groceries",
+    "description": "Milk, eggs, bread, and vegetables",
+    "completed": false,
+    "priority": "medium",
+    "category": "personal"
+  },
+  {
+    "id": 2,
+    "title": "Finish project report",
+    "description": "Complete the Q2 analysis and send to manager",
+    "completed": true,
+    "priority": "high",
+    "category": "work"
+  },
+  {
+    "id": 3,
+    "title": "Go for a run",
+    "description": "30-minute jog at the park",
+    "completed": false,
+    "priority": "low",
+    "category": "health"
+  }
+]

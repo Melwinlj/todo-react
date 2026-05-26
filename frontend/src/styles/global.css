@@ -1,0 +1,58 @@
+@import url('https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Sans:ital,wght@0,300;0,400;0,500;1,300&display=swap');
+
+:root {
+  --bg: #f5f0e8;
+  --surface: #ffffff;
+  --surface-2: #faf8f4;
+  --border: #e2dcd0;
+  --text: #1a1714;
+  --text-muted: #7a7468;
+  --accent: #c8522a;
+  --accent-light: #f5e8e2;
+  --accent-2: #2a6649;
+  --accent-2-light: #e2f0eb;
+  --shadow: 0 2px 12px rgba(26, 23, 20, 0.08);
+  --shadow-lg: 0 8px 32px rgba(26, 23, 20, 0.12);
+  --radius: 14px;
+  --radius-sm: 8px;
+}
+
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: 'DM Sans', sans-serif;
+  background-color: var(--bg);
+  color: var(--text);
+  min-height: 100vh;
+  background-image:
+    radial-gradient(ellipse at 20% 10%, rgba(200, 82, 42, 0.06) 0%, transparent 50%),
+    radial-gradient(ellipse at 80% 90%, rgba(42, 102, 73, 0.06) 0%, transparent 50%);
+}
+
+#root {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.app-container {
+  max-width: 680px;
+  margin: 0 auto;
+  padding: 0 20px 60px;
+  width: 100%;
+}
+
+button {
+  cursor: pointer;
+  border: none;
+  background: none;
+  font-family: inherit;
+}
+
+ul {
+  list-style: none;
+}
