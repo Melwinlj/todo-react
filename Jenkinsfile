@@ -3,8 +3,8 @@ pipeline {
 
     environment {
         AWS_REGION     = 'ap-south-1'
-        BUILDS_BUCKET  = 'myappbuilds-bucket'
-        HOSTING_BUCKET = 'react-on-aws-demo-alessandromarinoac'
+        BUILDS_BUCKET  = 'to-dooo'
+        HOSTING_BUCKET = 'to-dooo'
         APP_DIR        = 'frontend'
         APP_NAME       = 'myapp'
         ZIP_NAME       = "${APP_NAME}-v${BUILD_NUMBER}.zip"
