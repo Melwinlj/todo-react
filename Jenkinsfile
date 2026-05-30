@@ -32,64 +32,25 @@ pipeline {
     stages {
 
         // ─────────────────────────────────────────────
-        // STAGE 1 — Fix PATH + Verify tools
-        // Adds Homebrew & common node locations so
-        // Jenkins daemon on macOS can find node/npm/aws
+        // STAGE 1 — Verify Tools
         // ─────────────────────────────────────────────
         stage('Verify Tools') {
             steps {
                 sh '''
-                    # Extend PATH inside this shell to cover all common install locations
                     export PATH="/usr/local/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/usr/bin:/bin:/usr/sbin:/sbin:$PATH"
 
-                    # Also pick up nvm node if present
                     NVM_NODE_DIR="$HOME/.nvm/versions/node"
                     if [ -d "$NVM_NODE_DIR" ]; then
                         LATEST_NODE=$(ls "$NVM_NODE_DIR" | sort -V | tail -1)
                         export PATH="$NVM_NODE_DIR/$LATEST_NODE/bin:$PATH"
                     fi
 
-                    echo "=== PATH being used ==="
-                    echo "$PATH"
-                    echo ""
-
                     MISSING=0
-
-                    if command -v node >/dev/null 2>&1; then
-                        echo "✅ node : $(node --version)"
-                    else
-                        echo "❌ node : NOT FOUND — run: sudo ln -sf \$(which node) /usr/local/bin/node"
-                        MISSING=1
-                    fi
-
-                    if command -v npm >/dev/null 2>&1; then
-                        echo "✅ npm  : $(npm --version)"
-                    else
-                        echo "❌ npm  : NOT FOUND — run: sudo ln -sf \$(which npm) /usr/local/bin/npm"
-                        MISSING=1
-                    fi
-
-                    if command -v aws >/dev/null 2>&1; then
-                        echo "✅ aws  : $(aws --version)"
-                    else
-                        echo "❌ aws  : NOT FOUND — run: brew install awscli"
-                        MISSING=1
-                    fi
-
-                    if command -v zip >/dev/null 2>&1; then
-                        echo "✅ zip  : found"
-                    else
-                        echo "❌ zip  : NOT FOUND"
-                        MISSING=1
-                    fi
-
-                    if [ "$MISSING" = "1" ]; then
-                        echo ""
-                        echo "One or more required tools are missing."
-                        echo "Run the fix commands above in your Mac terminal, then:"
-                        echo "  brew services restart jenkins"
-                        exit 1
-                    fi
+                    command -v node >/dev/null 2>&1 && echo "✅ node : $(node --version)" || { echo "❌ node NOT FOUND"; MISSING=1; }
+                    command -v npm  >/dev/null 2>&1 && echo "✅ npm  : $(npm  --version)" || { echo "❌ npm  NOT FOUND"; MISSING=1; }
+                    command -v aws  >/dev/null 2>&1 && echo "✅ aws  : $(aws  --version)" || { echo "❌ aws  NOT FOUND"; MISSING=1; }
+                    command -v zip  >/dev/null 2>&1 && echo "✅ zip  : found"             || { echo "❌ zip  NOT FOUND"; MISSING=1; }
+                    [ "$MISSING" = "1" ] && exit 1 || echo "All tools found ✅"
                 '''
             }
         }
@@ -110,7 +71,7 @@ pipeline {
         }
 
         // ─────────────────────────────────────────────
-        // STAGE 3 — cd myapp   (screenshot line 6)
+        // STAGE 3 — cd myapp  (screenshot line 6)
         // ─────────────────────────────────────────────
         stage('cd myapp') {
             steps {
@@ -128,7 +89,7 @@ pipeline {
         }
 
         // ─────────────────────────────────────────────
-        // STAGE 4 — npm install   (screenshot line 7)
+        // STAGE 4 — npm install  (screenshot line 7)
         // ─────────────────────────────────────────────
         stage('npm install') {
             steps {
@@ -143,7 +104,7 @@ pipeline {
         }
 
         // ─────────────────────────────────────────────
-        // STAGE 5 — npm run build   (screenshot line 8)
+        // STAGE 5 — npm run build  (screenshot line 8)
         // ─────────────────────────────────────────────
         stage('npm run build') {
             steps {
@@ -160,7 +121,7 @@ pipeline {
         }
 
         // ─────────────────────────────────────────────
-        // STAGE 6 — zip   (screenshot line 9)
+        // STAGE 6 — zip  (screenshot line 9)
         // ─────────────────────────────────────────────
         stage('zip build artifact') {
             steps {
@@ -188,19 +149,22 @@ pipeline {
         }
 
         // ─────────────────────────────────────────────
-        // STAGE 7 — Upload to S3 builds bucket  (line 10)
+        // STAGE 7 — Upload to S3 builds bucket (line 10)
+        // Uses plain Secret Text credentials —
+        // NO "AWS Credentials" plugin required
         // ─────────────────────────────────────────────
         stage('upload to S3 builds bucket') {
             steps {
                 echo "══> Uploading ${ZIP_NAME} → s3://${BUILDS_BUCKET}"
-                withCredentials([[
-                    $class:            'AmazonWebServicesCredentialsBinding',
-                    credentialsId:     'aws-credentials',
-                    accessKeyVariable: 'AWS_ACCESS_KEY_ID',
-                    secretKeyVariable: 'AWS_SECRET_ACCESS_KEY'
-                ]]) {
+                withCredentials([
+                    string(credentialsId: 'aws-access-key-id',     variable: 'AWS_ACCESS_KEY_ID'),
+                    string(credentialsId: 'aws-secret-access-key', variable: 'AWS_SECRET_ACCESS_KEY')
+                ]) {
                     sh '''
                         export PATH="/usr/local/bin:/opt/homebrew/bin:/opt/homebrew/sbin:$PATH"
+                        export AWS_ACCESS_KEY_ID="$AWS_ACCESS_KEY_ID"
+                        export AWS_SECRET_ACCESS_KEY="$AWS_SECRET_ACCESS_KEY"
+                        export AWS_DEFAULT_REGION="$AWS_REGION"
 
                         aws s3 cp "${ZIP_NAME}" \
                             "s3://${BUILDS_BUCKET}/${ZIP_NAME}" \
@@ -214,7 +178,7 @@ pipeline {
         }
 
         // ─────────────────────────────────────────────
-        // STAGE 8 — Deploy   (screenshot lines 12-16)
+        // STAGE 8 — Deploy  (screenshot lines 12-16)
         //   line 13 — take input of version number
         //   line 14 — download version zip
         //   line 15 — unzip
@@ -223,6 +187,7 @@ pipeline {
         stage('deploy to S3 hosting') {
             steps {
                 script {
+                    // line 13 — take input of version number
                     def version = params.DEPLOY_VERSION?.trim()
                     if (!version || version == '') {
                         echo "No DEPLOY_VERSION set — deploying THIS build: v${BUILD_NUMBER}"
@@ -234,14 +199,15 @@ pipeline {
                     def zipToFetch = "${APP_NAME}-v${version}.zip"
                     echo "══> Target zip: ${zipToFetch}"
 
-                    withCredentials([[
-                        $class:            'AmazonWebServicesCredentialsBinding',
-                        credentialsId:     'aws-credentials',
-                        accessKeyVariable: 'AWS_ACCESS_KEY_ID',
-                        secretKeyVariable: 'AWS_SECRET_ACCESS_KEY'
-                    ]]) {
+                    withCredentials([
+                        string(credentialsId: 'aws-access-key-id',     variable: 'AWS_ACCESS_KEY_ID'),
+                        string(credentialsId: 'aws-secret-access-key', variable: 'AWS_SECRET_ACCESS_KEY')
+                    ]) {
                         sh """
                             export PATH="/usr/local/bin:/opt/homebrew/bin:/opt/homebrew/sbin:\$PATH"
+                            export AWS_ACCESS_KEY_ID="\$AWS_ACCESS_KEY_ID"
+                            export AWS_SECRET_ACCESS_KEY="\$AWS_SECRET_ACCESS_KEY"
+                            export AWS_DEFAULT_REGION="${AWS_REGION}"
 
                             # line 14 — download version zip
                             echo "══> Downloading s3://${BUILDS_BUCKET}/${zipToFetch}"
