@@ -1,9 +1,6 @@
 pipeline {
     agent any
 
-    /* ═══════════════════════════════════════════════════════════════
-       CHANGE ONLY THESE VALUES — everything else is auto-derived
-       ═══════════════════════════════════════════════════════════════ */
     environment {
         AWS_REGION     = 'ap-south-1'
         BUILDS_BUCKET  = 'myappbuilds-bucket'
@@ -11,11 +8,6 @@ pipeline {
         APP_DIR        = 'frontend'
         APP_NAME       = 'myapp'
         ZIP_NAME       = "${APP_NAME}-v${BUILD_NUMBER}.zip"
-
-        // ── Fix: make node/npm/aws visible to Jenkins on macOS ──────
-        // Jenkins on Mac runs as a daemon and doesn't load ~/.zshrc
-        // so we add all common install locations to PATH manually.
-        PATH = "/usr/local/bin:/opt/homebrew/bin:/opt/homebrew/sbin:${HOME}/.nvm/versions/node/$(ls ${HOME}/.nvm/versions/node 2>/dev/null | sort -V | tail -1)/bin:/usr/bin:/bin:/usr/sbin:/sbin:${PATH}"
     }
 
     triggers {
@@ -37,83 +29,95 @@ pipeline {
         disableConcurrentBuilds()
     }
 
-    // ──────────────────────────────────────────────────────────────
     stages {
 
-        // ┌─────────────────────────────────────────────────────────┐
-        // │  STAGE 1 — Verify tooling                               │
-        // │  Catches missing node/npm/aws BEFORE wasting time       │
-        // └─────────────────────────────────────────────────────────┘
+        // ─────────────────────────────────────────────
+        // STAGE 1 — Fix PATH + Verify tools
+        // Adds Homebrew & common node locations so
+        // Jenkins daemon on macOS can find node/npm/aws
+        // ─────────────────────────────────────────────
         stage('Verify Tools') {
             steps {
                 sh '''
-                    echo "=== Environment check ==="
-                    echo "PATH: $PATH"
+                    # Extend PATH inside this shell to cover all common install locations
+                    export PATH="/usr/local/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/usr/bin:/bin:/usr/sbin:/sbin:$PATH"
+
+                    # Also pick up nvm node if present
+                    NVM_NODE_DIR="$HOME/.nvm/versions/node"
+                    if [ -d "$NVM_NODE_DIR" ]; then
+                        LATEST_NODE=$(ls "$NVM_NODE_DIR" | sort -V | tail -1)
+                        export PATH="$NVM_NODE_DIR/$LATEST_NODE/bin:$PATH"
+                    fi
+
+                    echo "=== PATH being used ==="
+                    echo "$PATH"
                     echo ""
 
-                    # node
+                    MISSING=0
+
                     if command -v node >/dev/null 2>&1; then
-                        echo "✅ node  : $(node --version)"
+                        echo "✅ node : $(node --version)"
                     else
-                        echo "❌ node  : NOT FOUND"
-                        echo ""
-                        echo "FIX: install Node on this machine then run:"
-                        echo "  sudo launchctl setenv PATH \\"\\$PATH:\\$(dirname \\$(which node))\\"  # macOS"
-                        echo "  sudo systemctl restart jenkins                                      # Linux"
-                        exit 1
+                        echo "❌ node : NOT FOUND — run: sudo ln -sf \$(which node) /usr/local/bin/node"
+                        MISSING=1
                     fi
 
-                    # npm
                     if command -v npm >/dev/null 2>&1; then
-                        echo "✅ npm   : $(npm --version)"
+                        echo "✅ npm  : $(npm --version)"
                     else
-                        echo "❌ npm   : NOT FOUND"
-                        exit 1
+                        echo "❌ npm  : NOT FOUND — run: sudo ln -sf \$(which npm) /usr/local/bin/npm"
+                        MISSING=1
                     fi
 
-                    # aws
                     if command -v aws >/dev/null 2>&1; then
-                        echo "✅ aws   : $(aws --version)"
+                        echo "✅ aws  : $(aws --version)"
                     else
-                        echo "❌ aws   : NOT FOUND"
-                        echo "FIX: brew install awscli   OR   pip3 install awscli"
-                        exit 1
+                        echo "❌ aws  : NOT FOUND — run: brew install awscli"
+                        MISSING=1
                     fi
 
-                    # zip
                     if command -v zip >/dev/null 2>&1; then
-                        echo "✅ zip   : $(zip --version | head -1)"
+                        echo "✅ zip  : found"
                     else
-                        echo "❌ zip   : NOT FOUND"
+                        echo "❌ zip  : NOT FOUND"
+                        MISSING=1
+                    fi
+
+                    if [ "$MISSING" = "1" ]; then
+                        echo ""
+                        echo "One or more required tools are missing."
+                        echo "Run the fix commands above in your Mac terminal, then:"
+                        echo "  brew services restart jenkins"
                         exit 1
                     fi
                 '''
             }
         }
 
-        // ┌─────────────────────────────────────────────────────────┐
-        // │  STAGE 2 — Checkout   (uses YOUR actual cred ID)        │
-        // └─────────────────────────────────────────────────────────┘
+        // ─────────────────────────────────────────────
+        // STAGE 2 — Checkout
+        // ─────────────────────────────────────────────
         stage('Checkout') {
             steps {
                 echo '══> Checking out source code'
                 git(
                     url:           'https://github.com/Melwinlj/todo-react.git',
                     branch:        'main',
-                    credentialsId: 'github_creds'        // ← matches your Jenkins credential ID
+                    credentialsId: 'github_creds'
                 )
                 sh 'ls -la'
             }
         }
 
-        // ┌─────────────────────────────────────────────────────────┐
-        // │  STAGE 3 — cd myapp   (screenshot line 6)               │
-        // └─────────────────────────────────────────────────────────┘
+        // ─────────────────────────────────────────────
+        // STAGE 3 — cd myapp   (screenshot line 6)
+        // ─────────────────────────────────────────────
         stage('cd myapp') {
             steps {
                 echo "══> Entering directory: ${APP_DIR}"
                 dir("${APP_DIR}") {
                     sh '''
+                        export PATH="/usr/local/bin:/opt/homebrew/bin:/opt/homebrew/sbin:$PATH"
                         echo "pwd  : $(pwd)"
                         echo "node : $(node --version)"
                         echo "npm  : $(npm  --version)"
@@ -123,43 +127,48 @@ pipeline {
             }
         }
 
-        // ┌─────────────────────────────────────────────────────────┐
-        // │  STAGE 4 — npm install   (screenshot line 7)            │
-        // └─────────────────────────────────────────────────────────┘
+        // ─────────────────────────────────────────────
+        // STAGE 4 — npm install   (screenshot line 7)
+        // ─────────────────────────────────────────────
         stage('npm install') {
             steps {
                 echo '══> Installing npm dependencies'
                 dir("${APP_DIR}") {
-                    sh 'npm install --no-audit --no-fund'
-                }
-            }
-        }
-
-        // ┌─────────────────────────────────────────────────────────┐
-        // │  STAGE 5 — npm run build   (screenshot line 8)          │
-        // └─────────────────────────────────────────────────────────┘
-        stage('npm run build') {
-            steps {
-                echo '══> Building React / Vite app'
-                dir("${APP_DIR}") {
                     sh '''
-                        npm run build
-                        echo "── build output ──"
-                        ls -lh dist/ 2>/dev/null || ls -lh build/ 2>/dev/null || (echo "ERROR: no dist/ or build/ found" && exit 1)
+                        export PATH="/usr/local/bin:/opt/homebrew/bin:/opt/homebrew/sbin:$PATH"
+                        npm install --no-audit --no-fund
                     '''
                 }
             }
         }
 
-        // ┌─────────────────────────────────────────────────────────┐
-        // │  STAGE 6 — zip   (screenshot line 9)                    │
-        // │   zip -r myapp-vN.zip build/                            │
-        // └─────────────────────────────────────────────────────────┘
+        // ─────────────────────────────────────────────
+        // STAGE 5 — npm run build   (screenshot line 8)
+        // ─────────────────────────────────────────────
+        stage('npm run build') {
+            steps {
+                echo '══> Building React / Vite app'
+                dir("${APP_DIR}") {
+                    sh '''
+                        export PATH="/usr/local/bin:/opt/homebrew/bin:/opt/homebrew/sbin:$PATH"
+                        npm run build
+                        echo "── build output ──"
+                        ls -lh dist/ 2>/dev/null || ls -lh build/ 2>/dev/null || (echo "ERROR: no dist/ or build/ folder" && exit 1)
+                    '''
+                }
+            }
+        }
+
+        // ─────────────────────────────────────────────
+        // STAGE 6 — zip   (screenshot line 9)
+        // ─────────────────────────────────────────────
         stage('zip build artifact') {
             steps {
                 echo "══> Creating ${ZIP_NAME}"
                 dir("${APP_DIR}") {
                     sh '''
+                        export PATH="/usr/local/bin:/opt/homebrew/bin:/opt/homebrew/sbin:$PATH"
+
                         if [ -d "dist" ]; then
                             BUILD_DIR="dist"
                         elif [ -d "build" ]; then
@@ -178,9 +187,9 @@ pipeline {
             }
         }
 
-        // ┌─────────────────────────────────────────────────────────┐
-        // │  STAGE 7 — upload to S3 builds bucket   (line 10)       │
-        // └─────────────────────────────────────────────────────────┘
+        // ─────────────────────────────────────────────
+        // STAGE 7 — Upload to S3 builds bucket  (line 10)
+        // ─────────────────────────────────────────────
         stage('upload to S3 builds bucket') {
             steps {
                 echo "══> Uploading ${ZIP_NAME} → s3://${BUILDS_BUCKET}"
@@ -191,6 +200,8 @@ pipeline {
                     secretKeyVariable: 'AWS_SECRET_ACCESS_KEY'
                 ]]) {
                     sh '''
+                        export PATH="/usr/local/bin:/opt/homebrew/bin:/opt/homebrew/sbin:$PATH"
+
                         aws s3 cp "${ZIP_NAME}" \
                             "s3://${BUILDS_BUCKET}/${ZIP_NAME}" \
                             --region "${AWS_REGION}"
@@ -202,17 +213,16 @@ pipeline {
             }
         }
 
-        // ┌─────────────────────────────────────────────────────────┐
-        // │  STAGE 8 — Deploy   (screenshot lines 12-16)            │
-        // │   - take input of version number        (line 13)        │
-        // │   - download version zip                (line 14)        │
-        // │   - unzip                               (line 15)        │
-        // │   - aws s3 sync --delete → hosting      (line 16)        │
-        // └─────────────────────────────────────────────────────────┘
+        // ─────────────────────────────────────────────
+        // STAGE 8 — Deploy   (screenshot lines 12-16)
+        //   line 13 — take input of version number
+        //   line 14 — download version zip
+        //   line 15 — unzip
+        //   line 16 — aws s3 sync --delete to hosting
+        // ─────────────────────────────────────────────
         stage('deploy to S3 hosting') {
             steps {
                 script {
-                    // Line 13: take input of version number
                     def version = params.DEPLOY_VERSION?.trim()
                     if (!version || version == '') {
                         echo "No DEPLOY_VERSION set — deploying THIS build: v${BUILD_NUMBER}"
@@ -231,24 +241,26 @@ pipeline {
                         secretKeyVariable: 'AWS_SECRET_ACCESS_KEY'
                     ]]) {
                         sh """
-                            # Line 14: download version zip
+                            export PATH="/usr/local/bin:/opt/homebrew/bin:/opt/homebrew/sbin:\$PATH"
+
+                            # line 14 — download version zip
                             echo "══> Downloading s3://${BUILDS_BUCKET}/${zipToFetch}"
                             aws s3 cp "s3://${BUILDS_BUCKET}/${zipToFetch}" \
                                 "./${zipToFetch}" \
                                 --region "${AWS_REGION}"
 
-                            # Line 15: unzip
+                            # line 15 — unzip
                             echo "══> Unzipping ${zipToFetch}"
                             rm -rf deploy_tmp && mkdir deploy_tmp
                             unzip -q "${zipToFetch}" -d deploy_tmp/
                             ls -lh deploy_tmp/
 
-                            # Auto-detect dist/ or build/ inside the zip
+                            # detect dist/ or build/ inside the zip
                             STATIC_DIR=\$(find deploy_tmp -maxdepth 1 -type d \\( -name dist -o -name build \\) | head -1)
                             [ -z "\$STATIC_DIR" ] && STATIC_DIR="deploy_tmp"
                             echo "══> Syncing from: \$STATIC_DIR"
 
-                            # Line 16: aws s3 sync --delete to static hosting bucket
+                            # line 16 — aws s3 sync --delete to hosting bucket
                             aws s3 sync "\$STATIC_DIR" \
                                 "s3://${HOSTING_BUCKET}" \
                                 --delete \
