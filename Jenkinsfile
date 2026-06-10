@@ -18,7 +18,7 @@ pipeline {
         string(
             name:         'DEPLOY_VERSION',
             defaultValue: '',
-            description:  'Leave blank = deploy this build. Set e.g. "5" to redeploy build #5.'
+            description:  'Leave blank = deploy this build. Set e.g. 5 to redeploy build #5.'
         )
     }
 
